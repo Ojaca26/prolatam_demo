@@ -673,14 +673,53 @@ def orquestador(pregunta_usuario: str, chat_history: list):
                 df=df_para_enviar
             )
 
-        res_datos = obtener_datos_sql(pregunta_usuario, hist_text)
+        # --- ⬇️ INICIO DE LA MODIFICACIÓN (LÓGICA MEJORADA) ⬇️ ---
+        
+        res_datos = {}
+        df_previo = None
+
+        # 1. Definir "triggers simples" que DEBEN usar la tabla anterior
+        #    Limpia el prompt de espacios o signos de puntuación para una comparación limpia
+        prompt_limpio = pregunta_usuario.lower().strip().rstrip("?.!")
+        simple_analysis_triggers = [
+            "haz un analisis", 
+            "haz un análisis", # con tilde
+            "dame un analisis", 
+            "dame un análisis", # con tilde
+            "analiza", 
+            "analisis", # 'analisis' solo
+            "análisis"  # 'análisis' solo
+        ]
+
+        # 2. Buscar si ya existe una tabla en la conversación
+        for msg in reversed(st.session_state.get('messages', [])):
+            if msg.get('role') == 'assistant':
+                content = msg.get('content', {}); df_prev = content.get('df')
+                if isinstance(df_prev, pd.DataFrame) and not df_prev.empty:
+                    df_previo = df_prev
+                    break
+        
+        # 3. Decidir de dónde obtener los datos
+        if (clasificacion == "analista" and 
+            prompt_limpio in simple_analysis_triggers and 
+            df_previo is not None):
+            
+            # CASO A: Es un análisis simple ("haz un analisis") Y existe una tabla.
+            # ¡Usamos la tabla anterior!
+            st.info("💡 Usando la tabla anterior para el análisis.")
+            res_datos = {"df": df_previo}
+        
+        else:
+            # CASO B: Es una consulta nueva ("dame la cartera")
+            # O es un análisis *nuevo* ("analiza la cartera POR BARRIO")
+            # O es un análisis simple pero no hay tabla anterior.
+            # ¡Ejecutamos una nueva consulta!
+            res_datos = obtener_datos_sql(pregunta_usuario, hist_text)
+
+        # --- ⬆️ FIN DE LA MODIFICACIÓN ⬆️ ---
+
         if res_datos.get("df") is None or res_datos["df"].empty:
             return {"tipo": "error", "texto": "Lo siento, no pude obtener datos para tu pregunta. Intenta reformularla."}
-
-        #if clasificacion == "consulta":
-        #    st.success("✅ Consulta directa completada.")
-        #    return interpretar_resultado_sql(res_datos)
-
 
         if clasificacion == "consulta":
             st.success("✅ Consulta directa completada.")
@@ -695,13 +734,13 @@ def orquestador(pregunta_usuario: str, chat_history: list):
 
         if clasificacion == "analista":
             st.info("🧠 Generando análisis inicial...")
+            # Esta parte ahora recibe los datos correctos (res_datos)
             res_datos["analisis"] = analizar_con_datos(pregunta_usuario, hist_text, res_datos.get("df"))
             return validar_y_corregir_respuesta_analista(pregunta_usuario, res_datos, hist_text)
 
 # ============================================
 # 5) Interfaz: Micrófono en vivo + Chat
 # ============================================
-
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": {"texto": "¡Hola! Soy IANA, tu asistente de IA de Prolatam. ¿Qué te gustaría saber?"}}]
 
@@ -772,6 +811,7 @@ elif prompt_text:
 if prompt_a_procesar:
     procesar_pregunta(prompt_a_procesar)
     
+
 
 
 
