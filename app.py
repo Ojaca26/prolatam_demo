@@ -383,21 +383,41 @@ def ejecutar_sql_real(pregunta_usuario: str, hist_text: str):
 
         st.success(f"✅ ¡Consulta ejecutada! Filas: {len(df)}")
 
-        # 🧮 Post-procesamiento (Este bloque corrige ambos errores)
-        value_cols = [] # Definir fuera del try para tenerla disponible
+        # Dentro de la función ejecutar_sql_real:
+
+        # 🧮 Post-procesamiento
+        value_cols = [] 
         try:
             if not df.empty:
                 # MODIFICADO: Buscar filtro en `_Ano` en lugar de YEAR()
                 year_match = re.search(r"_\s*Ano\s*=\s*(\d{4})", sql_query_limpia, re.IGNORECASE)
-                year_value = year_match.group(1) if year_match else None
-                if year_value and "Año" not in df.columns and "_Ano" not in df.columns:
-                    df.insert(0, "Año", year_value)
+                year_value_str = year_match.group(1) if year_match else None
+                
+                # --- ⬇️ INICIO DE LA SOLUCIÓN ⬇️ ---
+                
+                # 1. Solo añadir el 'Año' si es una tabla (más de 1 fila) Y el año no está ya.
+                #    Esto evita que un resultado de SUM(Facturado) se convierta en 1x2.
+                if (year_value_str and 
+                    "Año" not in df.columns and 
+                    "_Ano" not in df.columns and 
+                    len(df) > 1): # <-- Condición clave para no tocar resultados 1x1
+                    
+                    # 2. Convertir el año a número (int) ANTES de insertarlo.
+                    #    Esto evita el error de formato (aplicar formato numérico a un string).
+                    try:
+                        year_value_num = int(year_value_str)
+                    except ValueError:
+                        year_value_num = float(year_value_str) # Fallback
+                    
+                    df.insert(0, "Año", year_value_num)
+                # --- ⬆️ FIN DE LA SOLUCIÓN ⬆️ ---
 
                 value_cols = [
                     c for c in df.select_dtypes("number").columns
                     # MODIFICADO: Permitir `_Ano` y `Mes` en la exclusión
                     if not re.search(r"(?i)\b(mes|_ano|año|dia|fecha|id|codigo)\b", c) # Excluimos IDs también
                 ]
+
 
                 # --- ⬇️ CORRECCIÓN PARA EL ERROR DE PYARROW ⬇️ ---
                 if value_cols and len(df) > 1: # Solo añade Total si hay datos y columnas de valor
@@ -737,6 +757,7 @@ elif prompt_text:
 if prompt_a_procesar:
     procesar_pregunta(prompt_a_procesar)
     
+
 
 
 
