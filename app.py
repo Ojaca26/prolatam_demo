@@ -631,17 +631,19 @@ Clasificación:
         return "consulta"
 
 def obtener_datos_sql(pregunta_usuario: str, hist_text: str) -> dict:
-    if any(keyword in pregunta_usuario.lower() for keyword in ["anterior", "esos datos", "esa tabla"]):
-        for msg in reversed(st.session_state.get('messages', [])):
-            if msg.get('role') == 'assistant':
-                content = msg.get('content', {}); df_prev = content.get('df')
-                if isinstance(df_prev, pd.DataFrame) and not df_prev.empty:
-                    st.info("💡 Usando datos de la respuesta anterior para la nueva solicitud.")
-                    return {"df": df_prev}
+    """
+    Esta función SIEMPRE ejecuta una nueva consulta SQL.
+    La lógica para re-usar tablas anteriores ahora vive en el orquestador.
+    """
     res_real = ejecutar_sql_real(pregunta_usuario, hist_text)
+    
     if res_real.get("df") is not None and not res_real["df"].empty:
         return res_real
+        
+    # Fallback al agente de lenguaje natural si la ejecución directa falla
+    st.warning("La consulta directa falló, intentando con el agente de lenguaje natural...")
     return ejecutar_sql_en_lenguaje_natural(pregunta_usuario, hist_text)
+
 
 def orquestador(pregunta_usuario: str, chat_history: list):
     with st.expander("⚙️ Ver Proceso de IANA", expanded=False):
@@ -673,25 +675,13 @@ def orquestador(pregunta_usuario: str, chat_history: list):
                 df=df_para_enviar
             )
 
-        # --- ⬇️ INICIO DE LA MODIFICACIÓN (LÓGICA MEJORADA) ⬇️ ---
+        # --- ⬇️ INICIO DE LA MODIFICACIÓN (LÓGICA CENTRALIZADA) ⬇️ ---
         
         res_datos = {}
         df_previo = None
+        use_previous_df = False
 
-        # 1. Definir "triggers simples" que DEBEN usar la tabla anterior
-        #    Limpia el prompt de espacios o signos de puntuación para una comparación limpia
-        prompt_limpio = pregunta_usuario.lower().strip().rstrip("?.!")
-        simple_analysis_triggers = [
-            "haz un analisis", 
-            "haz un análisis", # con tilde
-            "dame un analisis", 
-            "dame un análisis", # con tilde
-            "analiza", 
-            "analisis", # 'analisis' solo
-            "análisis"  # 'análisis' solo
-        ]
-
-        # 2. Buscar si ya existe una tabla en la conversación
+        # 1. Buscar si ya existe una tabla en la conversación
         for msg in reversed(st.session_state.get('messages', [])):
             if msg.get('role') == 'assistant':
                 content = msg.get('content', {}); df_prev = content.get('df')
@@ -699,42 +689,64 @@ def orquestador(pregunta_usuario: str, chat_history: list):
                     df_previo = df_prev
                     break
         
-        # 3. Decidir de dónde obtener los datos
-        if (clasificacion == "analista" and 
-            prompt_limpio in simple_analysis_triggers and 
-            df_previo is not None):
-            
-            # CASO A: Es un análisis simple ("haz un analisis") Y existe una tabla.
-            # ¡Usamos la tabla anterior!
-            st.info("💡 Usando la tabla anterior para el análisis.")
-            res_datos = {"df": df_previo}
+        # 2. Decidir si usamos la tabla anterior
+        if df_previo is not None:
+            prompt_lower = pregunta_usuario.lower()
+            prompt_clean = prompt_lower.strip().rstrip("?.!")
+
+            # Keywords que SIEMPRE se refieren a la tabla anterior
+            contextual_keywords = [
+                "anterior", 
+                "esos datos", 
+                "esa tabla", 
+                "la tabla" # <-- Esta es la clave
+            ]
+
+            # Triggers de análisis simple que TAMBIÉN deben usar la tabla anterior
+            simple_analysis_triggers = [
+                "haz un analisis", 
+                "haz un análisis",
+                "dame un analisis", 
+                "dame un análisis",
+                "analiza", 
+                "analisis",
+                "análisis",
+                "haz un analisis de la tabla" # <-- Añadimos tu prompt exacto
+            ]
+
+            # CASO A: La pregunta contiene "la tabla", "esa tabla", etc.
+            if any(keyword in prompt_lower for keyword in contextual_keywords):
+                use_previous_df = True
+                
+            # CASO B: Es un análisis simple Y la pregunta es SOLO el trigger simple
+            elif clasificacion == "analista" and prompt_clean in simple_analysis_triggers:
+                use_previous_df = True
         
+        # 3. Obtener los datos basándose en la decisión
+        if use_previous_df:
+            st.info("💡 Usando la tabla anterior para la nueva solicitud.")
+            res_datos = {"df": df_previo}
         else:
-            # CASO B: Es una consulta nueva ("dame la cartera")
-            # O es un análisis *nuevo* ("analiza la cartera POR BARRIO")
-            # O es un análisis simple pero no hay tabla anterior.
-            # ¡Ejecutamos una nueva consulta!
-            res_datos = obtener_datos_sql(pregunta_usuario, hist_text)
+            # Esta función AHORA solo ejecuta nuevas consultas
+            res_datos = obtener_datos_sql(pregunta_usuario, hist_text) 
 
         # --- ⬆️ FIN DE LA MODIFICACIÓN ⬆️ ---
 
         if res_datos.get("df") is None or res_datos["df"].empty:
             return {"tipo": "error", "texto": "Lo siento, no pude obtener datos para tu pregunta. Intenta reformularla."}
 
+        # --- LÓGICA DE RESPUESTA SIMPLIFICADA ---
         if clasificacion == "consulta":
             st.success("✅ Consulta directa completada.")
-            # Primero, intentamos interpretar el resultado como siempre
             res_interpretado = interpretar_resultado_sql(res_datos)
-    
-            # Luego, si no se generó texto (porque es una tabla), creamos la introducción
             if res_interpretado.get("texto") is None and res_interpretado.get("df") is not None and not res_interpretado["df"].empty:
                 res_interpretado = generar_resumen_tabla(pregunta_usuario, res_interpretado)
-    
             return res_interpretado
 
         if clasificacion == "analista":
             st.info("🧠 Generando análisis inicial...")
-            # Esta parte ahora recibe los datos correctos (res_datos)
+            # La variable res_datos (ya sea de la tabla anterior o nueva)
+            # se pasa al analista para generar el análisis.
             res_datos["analisis"] = analizar_con_datos(pregunta_usuario, hist_text, res_datos.get("df"))
             return validar_y_corregir_respuesta_analista(pregunta_usuario, res_datos, hist_text)
 
@@ -811,6 +823,7 @@ elif prompt_text:
 if prompt_a_procesar:
     procesar_pregunta(prompt_a_procesar)
     
+
 
 
 
