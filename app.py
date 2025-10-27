@@ -306,7 +306,6 @@ def limpiar_sql(sql_texto: str) -> str:
     # Limpieza final
     return limpio.strip().rstrip(';')
 
-
 def ejecutar_sql_real(pregunta_usuario: str, hist_text: str):
     st.info("🤖 El agente de datos está traduciendo tu pregunta a SQL...")
 
@@ -318,6 +317,7 @@ def ejecutar_sql_real(pregunta_usuario: str, hist_text: str):
         schema_info = "Error al obtener esquema. Asume columnas estándar."
     
     # --- Crear Prompt ---
+    # ⬇️⬇️ INICIO DE LA MODIFICACIÓN DEL PROMPT ⬇️⬇️
     prompt_con_instrucciones = f"""
     Tu tarea es generar una consulta SQL limpia (SOLO SELECT) para responder la pregunta del usuario, basándote ESTRICTAMENTE en el siguiente esquema de tabla.
 
@@ -326,23 +326,34 @@ def ejecutar_sql_real(pregunta_usuario: str, hist_text: str):
     --- FIN DEL ESQUEMA ---
 
     ---
-    <<< NUEVA REGLA: SIEMPRE MOSTRAR COP Y USD >>>
-    1. Revisa el esquema de arriba. Si hay columnas financieras con versiones `_COP` y `_USD` (o similar), úsalas.
-    2. Si la pregunta es sobre un valor monetario (costo, valor, total, facturación), DEBES seleccionar AMBAS columnas (COP y USD) si existen en el esquema.
-    3. **IMPORTANTE**: NO INVENTES columnas que no estén en el esquema. Si el usuario pregunta por "facturación" y en el esquema solo existe la columna `Monto_Factura`, usa `SUM(Monto_Factura)`. Si existen `Facturado_COP` y `Facturado_USD`, usa `SUM(Facturado_COP), SUM(Facturado_USD)`.
-    ---
-    <<< REGLA CRÍTICA PARA FILTRAR POR FECHA >>>
-    1. Si en el esquema ves una columna de fecha (ej: `Fecha_Facturacion`), úsala para filtrar.
-    2. Si el usuario especifica un año (ej: "del 2025", "en 2024"), SIEMPRE debes añadir una condición `WHERE YEAR(TuColumnaDeFecha) = [año]` a la consulta.
-    ---
-    <<< REGLA DE ORO PARA BÚSQUEDA DE PRODUCTOS >>>
-    1. Si en el esquema hay una columna de producto (ej: `Nombre_Producto`), usa `WHERE LOWER(Nombre_Producto) LIKE '%palabra%'.
+    <<< REGLAS DE ORO PARA LA TABLA 'prolatam' >>>
+
+    1.  **FILTRADO DE FECHA (MUY IMPORTANTE):**
+        * Esta tabla NO tiene una columna de fecha (DATE/DATETIME).
+        * Para filtrar por año, DEBES usar la columna `_Ano` (que es un DECIMAL). Ejemplo: `WHERE _Ano = 2024`.
+        * Para filtrar por mes, DEBES usar la columna `Mes` (que es un DECIMAL). Ejemplo: `WHERE Mes = 5`.
+        * NUNCA uses funciones como `YEAR()` o `MONTH()` en ninguna columna. Son columnas numéricas.
+
+    2.  **COLUMNAS DE MÉTRICAS (FINANZAS/CONTEOS):**
+        * Las columnas principales para sumar o promediar son: `Facturado`, `Recaudo`, `Cartera_Total`, `Cartera_Vencida`, `Clientes_Facturados`, `Clientes_con_Pago`, `Cantidad_de_PQRs`.
+        * Si el usuario pide un "total de facturación", "total recaudado" o "total de cartera", DEBES usar `SUM()` en la columna correspondiente (ej. `SUM(Facturado)`).
+        * Para promedios de tiempo de PQR, usa `AVG(Tiempo_Respuesta_Dias)`.
+
+    3.  **COLUMNAS CATEGÓRICAS (FILTROS DE TEXTO):**
+        * Las columnas para filtrar por categorías son `Uso`, `Estrato`, y `Barrio`.
+        * Si el usuario pregunta "cuántos clientes en el barrio X", debes usar `WHERE Barrio = 'X'`.
+        * Para búsquedas parciales, usa `LIKE`. Ejemplo: `WHERE Barrio LIKE '%Centro%'`.
+        * Las columnas `Acuerdos_Cumplen` y `Acuerdos_Incumplen` también son categorías de texto.
+
+    4.  **NO INVENTAR COLUMNAS:**
+        * NO hay columnas `_COP` o `_USD`. Si te piden un valor monetario (ej. "facturación"), usa la columna `Facturado` directamente.
     ---
     {hist_text}
     Pregunta del usuario: "{pregunta_usuario}"
 
     Devuelve SOLO la consulta SQL (sin explicaciones).
     """
+    # ⬆️⬆️ FIN DE LA MODIFICACIÓN DEL PROMPT ⬆️⬆️
     
     try:
         # Llama al LLM directamente para OBTENER el SQL (sin ejecutarlo)
@@ -376,14 +387,16 @@ def ejecutar_sql_real(pregunta_usuario: str, hist_text: str):
         value_cols = [] # Definir fuera del try para tenerla disponible
         try:
             if not df.empty:
-                year_match = re.search(r"YEAR\([^)]*\)\s*=\s*(\d{4})", sql_query_limpia)
+                # MODIFICADO: Buscar filtro en `_Ano` en lugar de YEAR()
+                year_match = re.search(r"_\s*Ano\s*=\s*(\d{4})", sql_query_limpia, re.IGNORECASE)
                 year_value = year_match.group(1) if year_match else None
-                if year_value and "Año" not in df.columns:
+                if year_value and "Año" not in df.columns and "_Ano" not in df.columns:
                     df.insert(0, "Año", year_value)
 
                 value_cols = [
                     c for c in df.select_dtypes("number").columns
-                    if not re.search(r"(?i)\b(mes|año|dia|fecha|id|codigo)\b", c) # Excluimos IDs también
+                    # MODIFICADO: Permitir `_Ano` y `Mes` en la exclusión
+                    if not re.search(r"(?i)\b(mes|_ano|año|dia|fecha|id|codigo)\b", c) # Excluimos IDs también
                 ]
 
                 # --- ⬇️ CORRECCIÓN PARA EL ERROR DE PYARROW ⬇️ ---
@@ -419,9 +432,18 @@ def ejecutar_sql_real(pregunta_usuario: str, hist_text: str):
             # 1. Crear mapa de formato base para columnas de valor (miles, 0 decimales)
             format_map = {col: "{:,.0f}" for col in value_cols}
 
-            # 2. Añadir formato específico para 'Mes' (entero, 0 decimales)
+            # 2. Añadir formato específico para 'Mes' y '_Ano' (entero, 0 decimales)
             if "Mes" in df.columns:
                 format_map["Mes"] = "{:.0f}"
+            if "_Ano" in df.columns:
+                format_map["_Ano"] = "{:.0f}"
+            if "Año" in df.columns:
+                format_map["Año"] = "{:.0f}"
+            
+            # MODIFICADO: Añadir formato para 'indice_de_Recaudo' como porcentaje
+            if "indice_de_Recaudo" in df.columns:
+                # Asumiendo que 0.95 debe mostrarse como 95.0%
+                format_map["indice_de_Recaudo"] = "{:,.1%}" 
 
             # 3. (A futuro) Añadir formato para columnas de porcentaje
             percent_cols = [col for col in df.columns if "porcentaje" in col.lower() or "%" in col.lower()]
@@ -715,6 +737,7 @@ elif prompt_text:
 if prompt_a_procesar:
     procesar_pregunta(prompt_a_procesar)
     
+
 
 
 
