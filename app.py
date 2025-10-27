@@ -315,7 +315,7 @@ def ejecutar_sql_real(pregunta_usuario: str, hist_text: str):
     except Exception as e:
         st.error(f"Error crítico: No se pudo obtener el esquema de la tabla 'prolatam'. {e}")
         schema_info = "Error al obtener esquema. Asume columnas estándar."
-    
+
     # --- Crear Prompt ---
     # ⬇️⬇️ INICIO DE LA MODIFICACIÓN DEL PROMPT ⬇️⬇️
     prompt_con_instrucciones = f"""
@@ -330,9 +330,9 @@ def ejecutar_sql_real(pregunta_usuario: str, hist_text: str):
 
     1.  **FILTRADO DE FECHA (MUY IMPORTANTE):**
         * Esta tabla NO tiene una columna de fecha (DATE/DATETIME).
-        * Para filtrar por año, DEBES usar la columna `_Ano` (que es un DECIMAL). Ejemplo: `WHERE _Ano = 2024`.
-        * Para filtrar por mes, DEBES usar la columna `Mes` (que es un DECIMAL). Ejemplo: `WHERE Mes = 5`.
-        * NUNCA uses funciones como `YEAR()` o `MONTH()` en ninguna columna. Son columnas numéricas.
+        * La columna `_Ano` es **DECIMAL**. Úsala para filtrar por año. Ejemplo: `WHERE _Ano = 2024`.
+        * La columna `Mes` es **TEXT**. Úsala para filtrar por el nombre del mes. Ejemplo: `WHERE Mes = 'enero'` o `WHERE Mes LIKE '%enero%'`.
+        * NUNCA uses funciones como `YEAR()` o `MONTH()`.
 
     2.  **COLUMNAS DE MÉTRICAS (FINANZAS/CONTEOS):**
         * Las columnas principales para sumar o promediar son: `Facturado`, `Recaudo`, `Cartera_Total`, `Cartera_Vencida`, `Clientes_Facturados`, `Clientes_con_Pago`, `Cantidad_de_PQRs`.
@@ -340,7 +340,7 @@ def ejecutar_sql_real(pregunta_usuario: str, hist_text: str):
         * Para promedios de tiempo de PQR, usa `AVG(Tiempo_Respuesta_Dias)`.
 
     3.  **COLUMNAS CATEGÓRICAS (FILTROS DE TEXTO):**
-        * Las columnas para filtrar por categorías son `Uso`, `Estrato`, y `Barrio`.
+        * Además de `Mes`, las columnas para filtrar por categorías son `Uso`, `Estrato`, y `Barrio`.
         * Si el usuario pregunta "cuántos clientes en el barrio X", debes usar `WHERE Barrio = 'X'`.
         * Para búsquedas parciales, usa `LIKE`. Ejemplo: `WHERE Barrio LIKE '%Centro%'`.
         * Las columnas `Acuerdos_Cumplen` y `Acuerdos_Incumplen` también son categorías de texto.
@@ -354,7 +354,7 @@ def ejecutar_sql_real(pregunta_usuario: str, hist_text: str):
     Devuelve SOLO la consulta SQL (sin explicaciones).
     """
     # ⬆️⬆️ FIN DE LA MODIFICACIÓN DEL PROMPT ⬆️⬆️
-    
+
     try:
         # Llama al LLM directamente para OBTENER el SQL (sin ejecutarlo)
         sql_query_bruta = llm_sql.invoke(prompt_con_instrucciones).content
@@ -774,6 +774,7 @@ elif prompt_text:
 if prompt_a_procesar:
     procesar_pregunta(prompt_a_procesar)
     
+
 
 
 
