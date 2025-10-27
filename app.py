@@ -317,34 +317,43 @@ def ejecutar_sql_real(pregunta_usuario: str, hist_text: str):
         schema_info = "Error al obtener esquema. Asume columnas estándar."
 
     # --- Crear Prompt ---
-    # ⬇️⬇️ INICIO DE LA MODIFICACIÓN DEL PROMPT (Solución 2) ⬇️⬇️
+    # ⬇️⬇️ INICIO DE LA MODIFICACIÓN DEL PROMPT ⬇️⬇️
     prompt_con_instrucciones = f"""
-    Tu tarea es generar una consulta SQL limpia (SOLO SELECT) para responder la pregunta del usuario.
+    Tu tarea es generar una consulta SQL limpia (SOLO SELECT) para responder la pregunta del usuario, basándote ESTRICTAMENTE en el siguiente esquema de tabla.
+
+    --- ESQUEMA DE LA TABLA 'prolatam' ---
+    {schema_info}
+    --- FIN DEL ESQUEMA ---
 
     ---
     <<< REGLAS DE ORO PARA LA TABLA 'prolatam' >>>
 
     1.  **FILTRADO DE FECHA (MUY IMPORTANTE):**
-        * Para filtrar por año, DEBES usar la columna `_Ano`. Ejemplo: `WHERE _Ano = 2024`.
-        
-    2.  **REGLA ESPECIAL PARA 'Mes' (CRÍTICO):**
-        * La columna `Mes` es de tipo `TEXT` (contiene 'enero', 'febrero', etc.).
-        * Para asegurar que la agrupación funcione, usa `CAST(Mes AS CHAR)` si la necesitas agrupar.
-        * Ejemplo Correcto: `SELECT _Ano, CAST(Mes AS CHAR), SUM(Facturado) ... GROUP BY _Ano, CAST(Mes AS CHAR)`
+        * Esta tabla NO tiene una columna de fecha (DATE/DATETIME).
+        * La columna `_Ano` es **DECIMAL**. Úsala para filtrar por año. Ejemplo: `WHERE _Ano = 2024`.
+        * La columna `Mes` también es **DECIMAL**. Úsala para filtrar por el número del mes. Ejemplo: `WHERE Mes = 1` (para enero) o `WHERE Mes = 2` (para febrero).
+        * NUNCA uses funciones como `YEAR()` o `MONTH()` en ninguna columna, ya que ambas son tipos `DECIMAL`.
 
-    3.  **COLUMNAS DE MÉTRICAS (FINANZAS/CONTEOS):**
-        * Usa `SUM(Facturado)`, `SUM(Recaudo)`, `AVG(Tiempo_Respuesta_Dias)`, etc.
+    2.  **COLUMNAS DE MÉTRICAS (FINANZAS/CONTEOS):**
+        * Las columnas principales para sumar o promediar son: `Facturado`, `Recaudo`, `Cartera_Total`, `Cartera_Vencida`, `Clientes_Facturados`, `Clientes_con_Pago`, `Cantidad_de_PQRs`.
+        * Si el usuario pide un "total de facturación", usa `SUM(Facturado)`.
+        * Para promedios de tiempo de PQR, usa `AVG(Tiempo_Respuesta_Dias)`.
 
-    4.  **COLUMNAS CATEGÓRICAS (FILTROS DE TEXTO):**
+    3.  **COLUMNAS CATEGÓRICAS (FILTROS DE TEXTO):**
         * Las columnas para filtrar por categorías son `Uso`, `Estrato`, y `Barrio`.
+        * Ejemplo: `WHERE Barrio LIKE '%Centro%'`.
+        * Las columnas `Acuerdos_Cumplen` y `Acuerdos_Incumplen` también son categorías de texto.
+
+    4.  **NO INVENTAR COLUMNAS:**
+        * NO hay columnas `_COP` o `_USD`. Si te piden un valor monetario (ej. "facturación"), usa la columna `Facturado` directamente.
     ---
     {hist_text}
     Pregunta del usuario: "{pregunta_usuario}"
 
     Devuelve SOLO la consulta SQL (sin explicaciones).
     """
-    # ⬆️⬆️ FIN DE LA MODIFICACIÓN DEL PROMPT ⬆️⬆️
-
+    # ⬆️⬆️ FIN DE LA MODIFICACIÓN DEL PROMPT ⬆️⬆
+    ️
     try:
         # Llama al LLM directamente para OBTENER el SQL (sin ejecutarlo)
         sql_query_bruta = llm_sql.invoke(prompt_con_instrucciones).content
@@ -764,6 +773,7 @@ elif prompt_text:
 if prompt_a_procesar:
     procesar_pregunta(prompt_a_procesar)
     
+
 
 
 
