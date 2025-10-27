@@ -353,7 +353,6 @@ def ejecutar_sql_real(pregunta_usuario: str, hist_text: str):
     Devuelve SOLO la consulta SQL (sin explicaciones).
     """
     # ⬆️⬆️ FIN DE LA MODIFICACIÓN DEL PROMPT ⬆️
-    ️
     try:
         # Llama al LLM directamente para OBTENER el SQL (sin ejecutarlo)
         sql_query_bruta = llm_sql.invoke(prompt_con_instrucciones).content
@@ -773,6 +772,7 @@ elif prompt_text:
 if prompt_a_procesar:
     procesar_pregunta(prompt_a_procesar)
     
+
 
 
 
