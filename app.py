@@ -29,14 +29,14 @@ import json
 # ============================================
 # 0) Configuración de la Página y Título
 # ============================================
-st.set_page_config(page_title="IANA para Ventus", page_icon="logo_ventus.png", layout="wide")
+st.set_page_config(page_title="IANA para Prolatam", page_icon="logo.jpeg", layout="wide")
 
 col1, col2 = st.columns([1, 4])
 with col1:
-    st.image("logo_ventus.png", width=120)
+    st.image("logo.jpeg", width=120)
 with col2:
     st.title("IANA: Tu Asistente IA para Análisis de Datos")
-    st.markdown("Soy la red de agentes IA de **VENTUS**. Hazme una pregunta sobre los datos del proyecto IGUANA.")
+    st.markdown("Soy la red de agentes IA de **PROLATAM**. Hazme una pregunta sobre tus datos.")
 
 # ============================================
 # 1) Conexión a la Base de Datos y LLMs
@@ -44,7 +44,7 @@ with col2:
 
 @st.cache_resource
 def get_database_connection():
-    with st.spinner("🛰️ Conectando a la base de datos de Ventus..."):
+    with st.spinner("🛰️ Conectando a la base de datos de Prolatam..."):
         try:
             creds = st.secrets["db_credentials"]
             uri = f"mysql+pymysql://{creds['user']}:{creds['password']}@{creds['host']}/{creds['database']}"
@@ -53,7 +53,7 @@ def get_database_connection():
                 "pool_pre_ping": True,
                 "connect_args": {"connect_timeout": 10}  # ⏱️ límite de conexión 10 segundos
             }
-            db = SQLDatabase.from_uri(uri, include_tables=["ventus_bi"], engine_args=engine_args)
+            db = SQLDatabase.from_uri(uri, include_tables=["prolatam"], engine_args=engine_args)
             st.success("✅ Conexión a la base de datos establecida.")
             return db
         except Exception as e:
@@ -312,16 +312,16 @@ def ejecutar_sql_real(pregunta_usuario: str, hist_text: str):
 
     # --- Obtener Esquema ---
     try:
-        schema_info = db.get_table_info(table_names=["ventus_bi"])
+        schema_info = db.get_table_info(table_names=["prolatam"])
     except Exception as e:
-        st.error(f"Error crítico: No se pudo obtener el esquema de la tabla 'ventus_bi'. {e}")
+        st.error(f"Error crítico: No se pudo obtener el esquema de la tabla 'prolatam'. {e}")
         schema_info = "Error al obtener esquema. Asume columnas estándar."
     
     # --- Crear Prompt ---
     prompt_con_instrucciones = f"""
     Tu tarea es generar una consulta SQL limpia (SOLO SELECT) para responder la pregunta del usuario, basándote ESTRICTAMENTE en el siguiente esquema de tabla.
 
-    --- ESQUEMA DE LA TABLA 'ventus_bi' ---
+    --- ESQUEMA DE LA TABLA 'prolatam' ---
     {schema_info}
     --- FIN DEL ESQUEMA ---
 
@@ -448,7 +448,7 @@ def ejecutar_sql_real(pregunta_usuario: str, hist_text: str):
 
 def ejecutar_sql_en_lenguaje_natural(pregunta_usuario: str, hist_text: str):
     st.info("🤔 Activando el agente SQL experto como plan B.")
-    prompt_sql = (f"Tu tarea es responder la pregunta consultando la tabla 'ventus_bi'.\n{hist_text}\nDevuelve ÚNICAMENTE una tabla en formato Markdown (con encabezados). NUNCA resumas ni expliques. El SQL interno NO DEBE CONTENER 'LIMIT'.\nPregunta: {pregunta_usuario}")
+    prompt_sql = (f"Tu tarea es responder la pregunta consultando la tabla 'prolatam'.\n{hist_text}\nDevuelve ÚNICAMENTE una tabla en formato Markdown (con encabezados). NUNCA resumas ni expliques. El SQL interno NO DEBE CONTENER 'LIMIT'.\nPregunta: {pregunta_usuario}")
     try:
         with st.spinner("💬 Pidiendo al agente SQL que responda..."):
             res = agente_sql.invoke(prompt_sql)
@@ -473,7 +473,7 @@ def analizar_con_datos(pregunta_usuario: str, hist_text: str, df: pd.DataFrame |
     return analisis
 def responder_conversacion(pregunta_usuario: str, hist_text: str):
     st.info("💬 Activando modo de conversación...")
-    prompt_personalidad = f"""Tu nombre es IANA, una IA amable de Ventus. Ayuda a analizar datos.\nSi el usuario hace un comentario casual, responde amablemente de forma natural, muy humana y redirígelo a tus capacidades.\n{hist_text}\nPregunta: "{pregunta_usuario}" """
+    prompt_personalidad = f"""Tu nombre es IANA, una IA amable de Prolatam. Ayuda a analizar datos.\nSi el usuario hace un comentario casual, responde amablemente de forma natural, muy humana y redirígelo a tus capacidades.\n{hist_text}\nPregunta: "{pregunta_usuario}" """
     respuesta = llm_analista.invoke(prompt_personalidad).content
     return {"texto": respuesta, "df": None, "analisis": None}
 
@@ -646,7 +646,7 @@ def orquestador(pregunta_usuario: str, chat_history: list):
 # ============================================
 
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": {"texto": "¡Hola! Soy IANA, tu asistente de IA de Ventus. ¿Qué te gustaría saber?"}}]
+    st.session_state.messages = [{"role": "assistant", "content": {"texto": "¡Hola! Soy IANA, tu asistente de IA de Prolatam. ¿Qué te gustaría saber?"}}]
 
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
@@ -715,6 +715,7 @@ elif prompt_text:
 if prompt_a_procesar:
     procesar_pregunta(prompt_a_procesar)
     
+
 
 
 
