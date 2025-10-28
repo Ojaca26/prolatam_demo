@@ -306,6 +306,7 @@ def limpiar_sql(sql_texto: str) -> str:
     # Limpieza final
     return limpio.strip().rstrip(';')
 
+
 def ejecutar_sql_real(pregunta_usuario: str, hist_text: str):
     st.info("🤖 El agente de datos está traduciendo tu pregunta a SQL...")
 
@@ -436,61 +437,77 @@ def ejecutar_sql_real(pregunta_usuario: str, hist_text: str):
                     df = pd.concat([df, pd.DataFrame([total_row])], ignore_index=True)
                 # --- ⬆️ FIN DE LA CORRECCIÓN ⬆️ ---
 
-            # --- ⬇️ INICIO DE LA MODIFICACIÓN DE FORMATO ⬇️ ---
-            def highlight_total(row):
-                # Revisa la primera columna (que ahora puede ser _Ano o Mes)
-                if isinstance(row.iloc[0], str) and row.iloc[0].lower() == "total":
-                    return ["font-weight: bold; background-color: #f8f9fa; border-top: 2px solid #999;"] * len(row)
-                else:
-                    return [""] * len(row)
-
-            styled_df = df.style.apply(highlight_total, axis=1)
-
-            # --- ⬇️ INICIO DE LA SOLUCIÓN ⬇️ ---
+                # --- ⬇️ INICIO DE LA SOLUCIÓN (LÍMITE DE CELDAS) ⬇️ ---
             
-            # 1. Define un formateador "seguro" que ignora strings (como "Total")
-            def safe_num_format(val, fmt_str):
-                if pd.api.types.is_number(val):
-                    try:
-                        return fmt_str.format(val)
-                    except (ValueError, TypeError):
-                        return val # Fallback si el formato falla
-                return val # Retorna valores no numéricos (como "Total") tal cual
+                # Límite de celdas (el default de Streamlit es 262144)
+                MAX_CELLS_FOR_STYLING = 262144 
 
-            # 2. Crea un mapa de las "cadenas de formato" que queremos
-            format_map_strings = {}
-            
-            # Formato para columnas de valor (ej. Facturacion_Total)
-            for col in value_cols:
-                format_map_strings[col] = "{:,.0f}"
+                # df.size es el total de celdas (filas * columnas)
+                if df.size > MAX_CELLS_FOR_STYLING:
+                    st.warning(f"⚠️ La tabla resultante es muy grande ({df.size:,.0f} celdas) para aplicar formatos. Se mostrarán los datos en modo simple.")
+                    # Devolvemos solo el df crudo, SIN la clave "styled"
+                    # La función 'procesar_pregunta' usará este 'df' crudo
+                    return {"sql": sql_query_limpia, "df": df}
+                
+                st.info("🎨 Aplicando formato a la tabla...")
+                # --- ⬆️ FIN DE LA SOLUCIÓN (LÍMITE DE CELDAS) ⬆️ ---
 
-            # Formato para columnas específicas (ej. _Ano, Mes)
-            if "Mes" in df.columns:
-                format_map_strings["Mes"] = "{:.0f}"
-            if "_Ano" in df.columns:
-                format_map_strings["_Ano"] = "{:.0f}" # <-- Esta es la que causaba el crash
-            if "Año" in df.columns:
-                format_map_strings["Año"] = "{:.0f}"
-            
-            # Formato para porcentajes
-            if "indice_de_Recaudo" in df.columns:
-                format_map_strings["indice_de_Recaudo"] = "{:,.1%}" 
-            percent_cols = [col for col in df.columns if "porcentaje" in col.lower() or "%" in col.lower()]
-            for col in percent_cols:
-                format_map_strings[col] = "{:,.2f}%"
 
-            # 3. Crea el diccionario final de formateadores "callable" (funciones)
-            final_formatter = {}
-            for col, fmt_str in format_map_strings.items():
-                # Creamos una función lambda "segura" para cada columna
-                final_formatter[col] = lambda val, f=fmt_str: safe_num_format(val, f)
+                # --- ⬇️ INICIO DE LA MODIFICACIÓN DE FORMATO ⬇️ ---
+                def highlight_total(row):
+                    # Revisa la primera columna (que ahora puede ser _Ano o Mes)
+                    if isinstance(row.iloc[0], str) and row.iloc[0].lower() == "total":
+                        return ["font-weight: bold; background-color: #f8f9fa; border-top: 2px solid #999;"] * len(row)
+                    else:
+                        return [""] * len(row)
 
-            # 4. Aplica el diccionario de formateadores seguros
-            styled_df = styled_df.format(final_formatter, na_rep="")
-            
-            # --- ⬆️ FIN DE LA SOLUCIÓN ⬆️ ---
+                styled_df = df.style.apply(highlight_total, axis=1)
 
-            return {"sql": sql_query_limpia, "df": df, "styled": styled_df}
+                # --- ⬇️ INICIO DE LA SOLUCIÓN ⬇️ ---
+                
+                # 1. Define un formateador "seguro" que ignora strings (como "Total")
+                def safe_num_format(val, fmt_str):
+                    if pd.api.types.is_number(val):
+                        try:
+                            return fmt_str.format(val)
+                        except (ValueError, TypeError):
+                            return val # Fallback si el formato falla
+                    return val # Retorna valores no numéricos (como "Total") tal cual
+
+                # 2. Crea un mapa de las "cadenas de formato" que queremos
+                format_map_strings = {}
+                
+                # Formato para columnas de valor (ej. Facturacion_Total)
+                for col in value_cols:
+                    format_map_strings[col] = "{:,.0f}"
+
+                # Formato para columnas específicas (ej. _Ano, Mes)
+                if "Mes" in df.columns:
+                    format_map_strings["Mes"] = "{:.0f}"
+                if "_Ano" in df.columns:
+                    format_map_strings["_Ano"] = "{:.0f}" # <-- Esta es la que causaba el crash
+                if "Año" in df.columns:
+                    format_map_strings["Año"] = "{:.0f}"
+                
+                # Formato para porcentajes
+                if "indice_de_Recaudo" in df.columns:
+                    format_map_strings["indice_de_Recaudo"] = "{:,.1%}" 
+                percent_cols = [col for col in df.columns if "porcentaje" in col.lower() or "%" in col.lower()]
+                for col in percent_cols:
+                    format_map_strings[col] = "{:,.2f}%"
+
+                # 3. Crea el diccionario final de formateadores "callable" (funciones)
+                final_formatter = {}
+                for col, fmt_str in format_map_strings.items():
+                    # Creamos una función lambda "segura" para cada columna
+                    final_formatter[col] = lambda val, f=fmt_str: safe_num_format(val, f)
+
+                # 4. Aplica el diccionario de formateadores seguros
+                styled_df = styled_df.format(final_formatter, na_rep="")
+                
+                # --- ⬆️ FIN DE LA SOLUCIÓN ⬆️ ---
+
+                return {"sql": sql_query_limpia, "df": df, "styled": styled_df}
 
         except Exception as e:
             st.warning(f"No se pudo aplicar formato ni totales: {e}")
@@ -501,7 +518,6 @@ def ejecutar_sql_real(pregunta_usuario: str, hist_text: str):
     except Exception as e:
         st.warning(f"❌ Error en la consulta directa. Intentando método alternativo... Detalle: {e}")
         return {"sql": None, "df": None, "error": str(e)}
-
 
 def ejecutar_sql_en_lenguaje_natural(pregunta_usuario: str, hist_text: str):
     st.info("🤔 Activando el agente SQL experto como plan B.")
@@ -823,6 +839,7 @@ elif prompt_text:
 if prompt_a_procesar:
     procesar_pregunta(prompt_a_procesar)
     
+
 
 
 
